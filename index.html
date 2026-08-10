@@ -235,6 +235,46 @@ nav.modes button{
 nav.modes button[aria-selected=true]{color:var(--src);border-bottom-color:var(--src)}
 nav.modes button:hover{color:var(--text)}
 
+/* history buttons */
+.histbtns{margin-left:auto;display:flex;gap:4px;align-self:center;padding-left:10px}
+.histbtns button{
+  background:none;border:1px solid var(--line);border-radius:var(--r);color:var(--muted);
+  font:inherit;font-size:1.05rem;line-height:1;padding:5px 11px;cursor:pointer;
+}
+.histbtns button:hover:not(:disabled){color:var(--src);border-color:var(--src)}
+.histbtns button:disabled{opacity:.3;cursor:default}
+
+/* sort dropdown */
+.tabs{align-items:center}
+.sortwrap{margin-left:auto;position:relative}
+.sortwrap > button{
+  background:none;border:1px solid var(--line);border-radius:var(--r);color:var(--muted);
+  font:inherit;font-size:.76rem;padding:7px 24px 7px 11px;cursor:pointer;white-space:nowrap;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 13px) 55%,calc(100% - 8px) 55%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+}
+.sortwrap > button:hover{color:var(--text);border-color:var(--muted)}
+.sortmenu{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:40;min-width:210px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 14px 34px rgba(0,0,0,.5);overflow:hidden;
+}
+.sortmenu button{
+  display:block;width:100%;text-align:left;background:none;border:0;
+  border-bottom:1px solid var(--line-soft);color:var(--text);
+  font:inherit;font-size:.8rem;padding:10px 12px;cursor:pointer;
+}
+.sortmenu button:last-child{border-bottom:0}
+.sortmenu button:hover{background:rgba(94,214,174,.13)}
+.sortmenu button[aria-selected=true]{color:var(--src)}
+.sortmenu button[aria-selected=true]::before{content:"✓ "}
+
+/* destructive actions */
+button.ghost.danger{color:var(--warn);border-color:rgba(232,120,92,.45);margin-top:8px}
+button.ghost.danger:hover{color:var(--warn);border-color:var(--warn)}
+button.go.danger{background:var(--warn);color:#2A0D06}
+
 /* lookup rows */
 .combo-row{
   display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
@@ -317,6 +357,10 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
 <nav class="modes" role="tablist">
   <button id="modeRoute" role="tab" aria-selected="true">継承元から探す</button>
   <button id="modeLookup" role="tab" aria-selected="false">目標から逆引き</button>
+  <div class="histbtns">
+    <button id="histBack" title="戻る" aria-label="戻る" disabled>‹</button>
+    <button id="histFwd" title="進む" aria-label="進む" disabled>›</button>
+  </div>
 </nav>
 
 <main id="paneRoute">
@@ -343,7 +387,6 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
     <div class="field">
       <span class="label">探索条件</span>
       <label class="opt"><input type="checkbox" id="optBase" checked><span>継承元どうしの配合から始める<small>ルート1手目に継承元が入るルートだけを出す</small></span></label>
-      <label class="opt"><input type="checkbox" id="optDup"><span>同じ継承元を2体使う<small>手数は増えるが選択肢が広がる</small></span></label>
     </div>
 
     <div class="field">
@@ -354,14 +397,6 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
         <option value="2">2体まで</option>
       </select>
       <p class="hint">捕まえてきたパルをルートに挟みます。増やすほど候補は広がりますが、無関係なパッシブが混ざる余地も増えます。</p>
-    </div>
-
-    <div class="field">
-      <label class="label" for="optSort">並び順</label>
-      <select class="sel" id="optSort">
-        <option value="steps">工程数の少なさを優先</option>
-        <option value="extra">継承元以外の少なさを優先</option>
-      </select>
     </div>
 
     <button class="go" id="run">ルートを探す</button>
@@ -379,6 +414,13 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
     <div class="tabs" role="tablist">
       <button id="tabFind" role="tab" aria-selected="true">探索結果</button>
       <button id="tabSaved" role="tab" aria-selected="false">保存済み <span id="savedCount">0</span></button>
+      <div class="sortwrap">
+        <button id="sortBtn" aria-haspopup="listbox" aria-expanded="false">工程数の少なさを優先</button>
+        <div class="sortmenu" id="sortMenu" role="listbox" hidden>
+          <button type="button" role="option" data-v="steps" aria-selected="true">工程数の少なさを優先</button>
+          <button type="button" role="option" data-v="extra" aria-selected="false">継承元以外の少なさを優先</button>
+        </div>
+      </div>
     </div>
     <div id="out">
       <div class="empty">
@@ -432,6 +474,14 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
     <div id="userArea" hidden>
       <div class="who" id="whoami"></div>
       <button class="ghost" id="signout" style="margin-top:0">ログアウト</button>
+      <button class="ghost danger" id="delAcct">アカウントを削除</button>
+      <div id="delConfirm" hidden>
+        <p class="msg err" style="margin-bottom:10px">保存したルートもすべて消えます。この操作は元に戻せません。</p>
+        <div class="row">
+          <button class="ghost" id="delCancel" style="margin-top:0">やめる</button>
+          <button class="go danger" id="delYes">削除する</button>
+        </div>
+      </div>
     </div>
 
     <div id="authArea">
@@ -713,7 +763,8 @@ const SPPAR = new Map();
    leaf node   : {pal, leaf:true, src, g}
    inner node  : {pal, L, R}                                              */
 function buildSolver(srcList, requireBase){
-  const memo = new Map();
+  /* flat numeric-keyed memo: string keys dominated the runtime */
+  const memo = new Array(N * 1024);
   const PERSTATE = 120;
 
   function leafOK(node, g){          /* does this node satisfy a fixed gender? */
@@ -726,15 +777,18 @@ function buildSolver(srcList, requireBase){
     return !(L.g && R.g && L.g === R.g);
   }
 
+  const POP = new Int8Array(256), LOW = new Int8Array(256);
+  for(let m=1;m<256;m++){ POP[m] = POP[m>>1] + (m&1); }
+  for(let m=1;m<256;m++){ let i=0; while(!((m>>i)&1)) i++; LOW[m]=i; }
+
   function solve(target, mask, extra){
-    const key = target + ',' + mask + ',' + extra;
-    const hit = memo.get(key);
+    const key = target * 1024 + mask * 4 + extra;
+    const hit = memo[key];
     if(hit) return hit;
     const out = [];
-    memo.set(key, out);                       /* cycles cannot occur: leaves shrink */
+    memo[key] = out;                          /* cycles cannot occur: leaves shrink */
 
-    let bits = 0, only = -1;
-    for(let b=0;b<srcList.length;b++) if(mask & (1<<b)){ bits++; only = b; }
+    const bits = POP[mask], only = mask ? LOW[mask] : -1;
 
     if(bits === 1 && extra === 0){
       const s = srcList[only];
@@ -827,6 +881,61 @@ function treeKey(node){
                    : ('('+[treeKey(node.L),treeKey(node.R)].sort().join(',')+')'+node.pal);
 }
 
+/* ============ view history ============
+   An entry is created only where the user actually asked for something:
+   a route search, or opening a breeding table for a pal.
+   Refinements inside a view (filters, sort order) do not create entries.  */
+let hist = [], histPos = -1, restoring = false;
+
+function paintNav(){
+  document.getElementById('histBack').disabled = histPos <= 0;
+  document.getElementById('histFwd').disabled  = histPos < 0 || histPos >= hist.length - 1;
+}
+function pushView(v){
+  if(restoring) return;
+  const cur = hist[histPos];
+  if(cur && cur.kind === v.kind && cur.kind === 'lookup' && cur.goal === v.goal) return;
+  hist = hist.slice(0, histPos + 1);
+  hist.push(v);
+  histPos = hist.length - 1;
+  paintNav();
+}
+function applyView(v){
+  restoring = true;
+  try{
+    if(v.kind === 'route'){
+      lastRoutes = v.routes; lastTarget = v.target;
+      lastRoutes.sort(currentSort());
+      render(lastRoutes, lastTarget);
+      setStatus(v.status, v.warn);
+      showMode('route'); showTab('find');
+    }else{
+      lkGoal = v.goal;
+      document.getElementById('lkFilter').value = v.filter || '';
+      document.getElementById('lkWild').checked = !!v.wild;
+      lkChip(); paintLookup();
+      showMode('lookup');
+    }
+  } finally { restoring = false; }
+}
+function goHistory(delta){
+  const p = histPos + delta;
+  if(p < 0 || p >= hist.length) return;
+  histPos = p;
+  applyView(hist[p]);
+  paintNav();
+}
+document.getElementById('histBack').onclick = ()=>goHistory(-1);
+document.getElementById('histFwd').onclick  = ()=>goHistory(1);
+
+/* keep the current lookup view's filters up to date without adding an entry */
+function syncLookupView(){
+  const v = hist[histPos];
+  if(!v || v.kind !== 'lookup') return;
+  v.filter = document.getElementById('lkFilter').value;
+  v.wild   = document.getElementById('lkWild').checked;
+}
+
 /* ============ mode switcher ============ */
 function showMode(which){
   const r = which === 'route';
@@ -859,12 +968,15 @@ function lkChip(){
   c.append(nm, x); box.appendChild(c);
 }
 function setLookup(id){
+  if(lkGoal === id && !document.getElementById('paneLookup').hidden) return;
   lkGoal = id;
   document.getElementById('lkIn').value = '';
+  document.getElementById('lkFilter').value = '';
   lkChip();
   paintLookup();
   showMode('lookup');
-  document.getElementById('paneLookup').scrollIntoView({block:'start', behavior:'smooth'});
+  pushView({kind:'lookup', goal:id, filter:'', wild:document.getElementById('lkWild').checked});
+  try{ window.scrollTo({top:0, behavior:'smooth'}); }catch(e){}
 }
 
 function allPairs(target){
@@ -954,8 +1066,8 @@ function lkMore(){
   }
 }
 
-document.getElementById('lkFilter').addEventListener('input', ()=>{ if(lkGoal!==null) paintLookup(); });
-document.getElementById('lkWild').addEventListener('change', ()=>{ if(lkGoal!==null) paintLookup(); });
+document.getElementById('lkFilter').addEventListener('input', ()=>{ if(lkGoal!==null){ paintLookup(); syncLookupView(); } });
+document.getElementById('lkWild').addEventListener('change', ()=>{ if(lkGoal!==null){ paintLookup(); syncLookupView(); } });
 
 /* ============ account & storage ============
    Talks to Supabase over plain fetch — no SDK, no CDN dependency.
@@ -1026,7 +1138,9 @@ async function rest(path, opts){
     const t = await r.text().catch(()=> '');
     throw new Error('保存先エラー: ' + (t.slice(0,160) || r.status));
   }
-  return r.status === 204 ? null : r.json();
+  const txt = await r.text().catch(()=> '');
+  if(!txt) return null;
+  try{ return JSON.parse(txt); }catch(e){ return null; }
 }
 
 /* ---- saved routes ---- */
@@ -1069,7 +1183,10 @@ function paintAccount(){
   if(signedIn()) document.getElementById('whoami').textContent = sess.email || '';
   if(cfg){ document.getElementById('cfgUrl').value = cfg.url || ''; document.getElementById('cfgKey').value = cfg.key || ''; }
 }
-document.getElementById('acctBtn').onclick = ()=>{ say(''); modal.hidden = false; paintAccount(); };
+document.getElementById('acctBtn').onclick = ()=>{
+  say(''); document.getElementById('delConfirm').hidden = true;
+  modal.hidden = false; paintAccount();
+};
 document.getElementById('modalClose').onclick = ()=>{ modal.hidden = true; };
 modal.addEventListener('click', e=>{ if(e.target === modal) modal.hidden = true; });
 
@@ -1089,7 +1206,9 @@ document.getElementById('signin').onclick = async ()=>{
       password: document.getElementById('pw').value
     });
     if(!keepSession(j)) throw new Error('ログインできませんでした');
-    say('ログインしました', 'ok'); paintAccount(); loadSaved();
+    say(''); paintAccount(); loadSaved();
+    document.getElementById('pw').value = '';
+    modal.hidden = true;
   }catch(e){ say(String(e.message||e), 'err'); }
 };
 document.getElementById('signup').onclick = async ()=>{
@@ -1099,10 +1218,29 @@ document.getElementById('signup').onclick = async ()=>{
       email: document.getElementById('email').value.trim(),
       password: document.getElementById('pw').value
     });
-    if(keepSession(j)){ say('登録してログインしました', 'ok'); paintAccount(); loadSaved(); }
-    else say('確認メールを送りました。リンクを開いたあとログインしてください。', 'ok');
+    if(keepSession(j)){
+      say(''); paintAccount(); loadSaved();
+      document.getElementById('pw').value = '';
+      modal.hidden = true;
+    } else say('確認メールを送りました。リンクを開いたあとログインしてください。', 'ok');
   }catch(e){ say(String(e.message||e), 'err'); }
 };
+document.getElementById('delAcct').onclick   = ()=>{ document.getElementById('delConfirm').hidden = false; say(''); };
+document.getElementById('delCancel').onclick = ()=>{ document.getElementById('delConfirm').hidden = true; };
+document.getElementById('delYes').onclick = async ()=>{
+  const btn = document.getElementById('delYes');
+  btn.disabled = true; btn.textContent = '削除中…';
+  try{
+    await rest('rpc/delete_own_account', {method:'POST', body:'{}'});
+    sess = null; store.del(K_SESS); savedRows = []; paintSaved(); paintAccount();
+    document.getElementById('delConfirm').hidden = true;
+    say('アカウントを削除しました', 'ok');
+  }catch(e){
+    say('削除できませんでした。データベース側に delete_own_account 関数が未作成の可能性があります。（' + (e.message||e) + '）', 'err');
+  }
+  btn.disabled = false; btn.textContent = '削除する';
+};
+
 document.getElementById('signout').onclick = ()=>{
   sess = null; store.del(K_SESS); savedRows = []; paintSaved(); paintAccount();
   say('ログアウトしました', 'ok');
@@ -1110,10 +1248,13 @@ document.getElementById('signout').onclick = ()=>{
 
 /* ---- render ---- */
 function palEl(id, role, g){
-  const d = document.createElement('span');
+  const d = document.createElement('button');
+  d.type = 'button';
   d.className = 'pal ' + role;
   const mark = g ? ' <span class="gm '+g+'">'+(g==='M'?'♂':'♀')+'</span>' : '';
   d.innerHTML = '<b>'+NAMES[id]+mark+'</b><span>R'+BP[id]+'</span>';
+  d.title = NAMES[id]+' の配合表を開く';
+  d.onclick = ()=>setLookup(id);
   return d;
 }
 function routeText(steps){
@@ -1244,23 +1385,42 @@ document.getElementById('tabSaved').onclick = ()=>{ showTab('saved'); loadSaved(
 const statusEl = document.getElementById('status');
 function setStatus(html, warn){ statusEl.innerHTML = html; statusEl.className = 'status' + (warn?' warn':''); }
 
-function currentSort(){
-  return document.getElementById('optSort').value === 'extra'
-    ? (a,b)=> (a.extra-b.extra) || (a.steps.length-b.steps.length)
-    : (a,b)=> (a.steps.length-b.steps.length) || (a.extra-b.extra);
-}
-let lastRoutes = [], lastTarget = null;
-document.getElementById('optSort').addEventListener('change', ()=>{
-  if(!lastRoutes.length) return;
-  lastRoutes.sort(currentSort());
-  render(lastRoutes, lastTarget);
+const SORTS = {
+  steps: {label:'工程数の少なさを優先', fn:(a,b)=> (a.steps.length-b.steps.length) || (a.extra-b.extra)},
+  extra: {label:'継承元以外の少なさを優先', fn:(a,b)=> (a.extra-b.extra) || (a.steps.length-b.steps.length)}
+};
+let sortMode = 'steps';
+function currentSort(){ return SORTS[sortMode].fn; }
+
+const sortBtn = document.getElementById('sortBtn'), sortMenu = document.getElementById('sortMenu');
+function closeSortMenu(){ sortMenu.hidden = true; sortBtn.setAttribute('aria-expanded','false'); }
+sortBtn.onclick = e=>{
+  e.stopPropagation();
+  const open = sortMenu.hidden;
+  sortMenu.hidden = !open;
+  sortBtn.setAttribute('aria-expanded', String(open));
+};
+document.addEventListener('click', e=>{ if(!sortMenu.hidden && !sortMenu.contains(e.target)) closeSortMenu(); });
+sortMenu.querySelectorAll('button').forEach(b=>{
+  b.onclick = ()=>{
+    const v = b.dataset.v;
+    closeSortMenu();
+    if(v === sortMode) return;                 /* nothing changed — skip the redraw */
+    sortMode = v;
+    sortBtn.textContent = SORTS[v].label;
+    sortMenu.querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected', String(x.dataset.v === v)));
+    if(!lastRoutes.length) return;
+    lastRoutes.sort(currentSort());
+    render(lastRoutes, lastTarget);
+  };
 });
+
+let lastRoutes = [], lastTarget = null;
 
 document.getElementById('run').addEventListener('click', ()=>{
   if(sources.length < 1 || goal === null){ setStatus('継承元を1体以上、目標を1体選んでください', true); return; }
   if(sources.length > 7){ setStatus('継承元は7体までにしてください', true); return; }
   const requireBase = document.getElementById('optBase').checked;
-  const useDup = document.getElementById('optDup').checked;
   const maxExtra = parseInt(document.getElementById('optExtra').value, 10);
 
   const btn = document.getElementById('run');
@@ -1273,15 +1433,17 @@ document.getElementById('run').addEventListener('click', ()=>{
     const base = sources.map(s=>({id:s.id, g:s.g}));
     const srcVariants = [base];
     /* a second copy of the same pal is a different individual, so its gender is free */
-    if(useDup) sources.forEach(s=>srcVariants.push(base.concat([{id:s.id, g:null}])));
+    sources.forEach(s=>srcVariants.push(base.concat([{id:s.id, g:null}])));
 
     const cap = 400;
     const seen = new Set();
     const routes = [];
+    const solvers = srcVariants.map(sl=>buildSolver(sl, requireBase));
+    /* extra-pal count is the outer loop so the result cap never
+       discards a route that uses fewer outside pals */
     outer:
-    for(const srcList of srcVariants){
-      const run = buildSolver(srcList, requireBase);
-      for(let k = 0; k <= maxExtra; k++){
+    for(let k = 0; k <= maxExtra; k++){
+      for(const run of solvers){
         for(const tree of run(goal, k)){
           const key = treeKey(tree);
           if(seen.has(key)) continue;
@@ -1299,9 +1461,11 @@ document.getElementById('run').addEventListener('click', ()=>{
     const minStep = routes.length ? Math.min.apply(null, routes.map(r=>r.steps.length)) : 0;
     const minExtra = routes.length ? Math.min.apply(null, routes.map(r=>r.extra)) : 0;
     const capped = routes.length >= cap ? ' · 上限'+cap+'件で打ち切り' : '';
-    setStatus(routes.length
+    const statusHTML = routes.length
       ? '<b>'+routes.length+'</b> 件 · 最短 <b>'+minStep+'</b> ステップ · 継承元以外 最少 <b>'+minExtra+'</b> 体 · '+ms+' ms'+capped
-      : '<b>0</b> 件 · '+ms+' ms', !routes.length);
+      : '<b>0</b> 件 · '+ms+' ms';
+    setStatus(statusHTML, !routes.length);
+    pushView({kind:'route', routes:routes, target:goal, status:statusHTML, warn:!routes.length});
     btn.disabled = false; btn.textContent = 'ルートを探す';
   }, 20);
 });
@@ -1315,6 +1479,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
 
 paintAccount();
 paintSaved();
+paintNav();
 if(configured() && signedIn()) loadSaved();
 })();
 </script>
