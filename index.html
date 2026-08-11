@@ -101,6 +101,30 @@ input[type=text]:focus{outline:2px solid var(--src);outline-offset:1px;border-co
 .sugg button:hover,.sugg button[aria-selected=true]{background:rgba(94,214,174,.13);color:#fff}
 .sugg .rk{font-family:"JetBrains Mono",monospace;font-size:.66rem;color:var(--muted)}
 
+.fieldhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.fieldhead .label{margin-bottom:0}
+button.addgrp{
+  background:none;border:1px solid var(--src);color:var(--src);border-radius:var(--r);
+  font:inherit;font-size:.76rem;font-weight:700;padding:6px 11px;cursor:pointer;white-space:nowrap;
+}
+button.addgrp:hover:not(:disabled){background:rgba(94,214,174,.13)}
+button.addgrp:disabled{opacity:.35;cursor:default;border-color:var(--line);color:var(--muted)}
+
+.group{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:11px;margin-bottom:10px}
+.grouphead{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.grouphead .gname{
+  flex:1;background:none;border:0;border-bottom:1px solid var(--line-soft);color:var(--text);
+  font:inherit;font-weight:700;font-size:.85rem;padding:2px 1px 6px;border-radius:0;
+}
+.grouphead .gname:focus{outline:0;border-bottom-color:var(--src)}
+.grouphead .gname::placeholder{color:var(--muted);font-weight:400}
+button.grpdel{
+  flex:none;background:none;border:1px solid var(--line);color:var(--muted);
+  border-radius:var(--r);font-size:1rem;line-height:1;padding:4px 9px;cursor:pointer;
+}
+button.grpdel:hover{color:var(--warn);border-color:var(--warn)}
+.group .empty-note{font-size:.72rem;color:var(--muted);margin-top:8px}
+
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .chips:empty{display:none}
 .chip{
@@ -366,13 +390,12 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
 <main id="paneRoute">
   <section class="controls">
     <div class="field">
-      <label class="label" for="srcIn">継承元パル <em>（複数）</em></label>
-      <div class="combo">
-        <input type="text" id="srcIn" autocomplete="off" placeholder="パル名（かな・ローマ字でも可）">
-        <div class="sugg" id="srcSugg" role="listbox"></div>
+      <div class="fieldhead">
+        <span class="label" style="margin-bottom:0">継承元グループ</span>
+        <button type="button" class="addgrp" id="addGroup">+ グループを追加</button>
       </div>
-      <div class="chips" id="srcChips"></div>
-      <p class="hint">残したいパッシブを持つパルを追加します。2〜6体が目安です。「ねむ」「nemu」のようにかな・ローマ字の途中入力でも候補が出ます。<br>チップの <span class="mono">—</span> を押すと性別を ♂ / ♀ / 未指定 に切り替えられます。未指定のパルは性別を考えずにルートを組みます。</p>
+      <div id="groupList"></div>
+      <p class="hint">1グループの中は「どれか1体」、グループどうしは「全部必要」という意味になります。同じスキルを持つ候補は同じグループにまとめてください。<b>必ず使いたいパルは、1体だけのグループとして別に分けてください。</b><br>グループは最大7個、目安は各1〜3体です。「ねむ」「nemu」のようにかな・ローマ字の途中入力でも候補が出ます。<br>チップの <span class="mono">—</span> を押すと性別を ♂ / ♀ / 未指定 に切り替えられます。</p>
     </div>
 
     <div class="field">
@@ -662,11 +685,15 @@ function matches(q){
   return buckets[0].concat(buckets[1], buckets[2], buckets[3]);
 }
 
-/* ---- state: sources = [{id, g}] , g in null|'M'|'F' ---- */
-let sources = [], goal = null;
+/* ---- state ----
+   groups = [{name, members:[{id, g}]}]   g in null|'M'|'F'
+   1グループ内は「どれか1体」、グループどうしは「全部必須」。               */
+let groups = [], goal = null;
+const MAX_GROUPS = 7;
 
-function combobox(inputId, suggId, onPick){
-  const input = document.getElementById(inputId), sugg = document.getElementById(suggId);
+function combobox(inputOrId, suggOrId, onPick){
+  const input = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+  const sugg  = typeof suggOrId  === 'string' ? document.getElementById(suggOrId)  : suggOrId;
   let cur = -1, list = [];
   function close(){ sugg.innerHTML=''; cur=-1; list=[]; }
   function render(){
@@ -699,33 +726,12 @@ function combobox(inputId, suggId, onPick){
     } else if(e.key==='Escape'){ close(); }
   });
 }
-combobox('srcIn','srcSugg', id=>{
-  if(!sources.some(s=>s.id===id)) sources.push({id:id, g:null});
-  drawChips();
-});
 combobox('tgtIn','tgtSugg', id=>{ goal = id; drawChips(); });
 
 const GLABEL = {null:'—', 'M':'♂', 'F':'♀'};
 const GNEXT  = {null:'M', 'M':'F', 'F':null};
 
 function drawChips(){
-  const sc = document.getElementById('srcChips'); sc.innerHTML='';
-  sources.forEach(s=>{
-    const c = document.createElement('span'); c.className='chip';
-    const nm = document.createElement('span'); nm.textContent = NAMES[s.id];
-    const g = document.createElement('button');
-    g.type='button'; g.className='g';
-    g.dataset.g = s.g === null ? '' : s.g;
-    g.textContent = GLABEL[s.g];
-    g.title = '性別を切り替える';
-    g.setAttribute('aria-label', NAMES[s.id]+' の性別');
-    g.onclick = ()=>{ s.g = GNEXT[s.g]; drawChips(); };
-    const x = document.createElement('button');
-    x.type='button'; x.innerHTML='&times;'; x.setAttribute('aria-label','削除');
-    x.onclick = ()=>{ sources = sources.filter(v=>v!==s); drawChips(); };
-    c.append(nm, g, x);
-    sc.appendChild(c);
-  });
   const tc = document.getElementById('tgtChips'); tc.innerHTML='';
   if(goal!==null){
     const c = document.createElement('span'); c.className='chip goal';
@@ -737,6 +743,103 @@ function drawChips(){
     tc.appendChild(c);
   }
 }
+
+/* ---- group manager ---- */
+function addGroup(){
+  if(groups.length >= MAX_GROUPS) return;
+  groups.push({name:'', members:[]});
+  renderGroups();
+}
+function removeGroup(gi){
+  groups.splice(gi, 1);
+  renderGroups();
+}
+function addMember(gi, id){
+  const g = groups[gi];
+  if(!g || g.members.some(m=>m.id===id && m.g===null)) return; /* skip an exact redundant add */
+  g.members.push({id:id, g:null});
+  paintGroupChips(gi);
+}
+function removeMember(gi, mi){
+  groups[gi].members.splice(mi, 1);
+  paintGroupChips(gi);
+}
+function cycleMemberGender(gi, mi){
+  const m = groups[gi].members[mi];
+  m.g = GNEXT[m.g];
+  paintGroupChips(gi);
+}
+
+function paintGroupChips(gi){
+  const g = groups[gi];
+  const box = document.querySelector('.group[data-gi="'+gi+'"] .chips');
+  const note = document.querySelector('.group[data-gi="'+gi+'"] .empty-note');
+  if(!box) return;
+  box.innerHTML = '';
+  g.members.forEach((m, mi)=>{
+    const c = document.createElement('span'); c.className='chip';
+    const nm = document.createElement('span'); nm.textContent = NAMES[m.id];
+    const gb = document.createElement('button');
+    gb.type='button'; gb.className='g';
+    gb.dataset.g = m.g === null ? '' : m.g;
+    gb.textContent = GLABEL[m.g];
+    gb.title = '性別を切り替える';
+    gb.setAttribute('aria-label', NAMES[m.id]+' の性別');
+    gb.onclick = ()=>cycleMemberGender(gi, mi);
+    const x = document.createElement('button');
+    x.type='button'; x.innerHTML='&times;'; x.setAttribute('aria-label','削除');
+    x.onclick = ()=>removeMember(gi, mi);
+    c.append(nm, gb, x);
+    box.appendChild(c);
+  });
+  if(note) note.hidden = g.members.length > 0;
+}
+
+function renderGroups(){
+  const list = document.getElementById('groupList');
+  list.innerHTML = '';
+  groups.forEach((g, gi)=>{
+    const div = document.createElement('div');
+    div.className = 'group';
+    div.dataset.gi = gi;
+
+    const head = document.createElement('div'); head.className='grouphead';
+    const nameIn = document.createElement('input');
+    nameIn.type = 'text'; nameIn.className = 'gname';
+    nameIn.placeholder = 'グループ'+(gi+1)+'（例: 俊足）';
+    nameIn.value = g.name;
+    nameIn.addEventListener('input', ()=>{ g.name = nameIn.value; });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'grpdel'; del.textContent = '×';
+    del.title = 'グループを削除'; del.setAttribute('aria-label','グループ'+(gi+1)+'を削除');
+    del.onclick = ()=>removeGroup(gi);
+    head.append(nameIn, del);
+    div.appendChild(head);
+
+    const combo = document.createElement('div'); combo.className = 'combo';
+    const memIn = document.createElement('input');
+    memIn.type = 'text'; memIn.autocomplete = 'off';
+    memIn.placeholder = 'パルを追加（かな・ローマ字でも可）';
+    const memSugg = document.createElement('div'); memSugg.className = 'sugg'; memSugg.setAttribute('role','listbox');
+    combo.append(memIn, memSugg);
+    div.appendChild(combo);
+
+    const chips = document.createElement('div'); chips.className = 'chips';
+    div.appendChild(chips);
+
+    const note = document.createElement('p'); note.className = 'empty-note';
+    note.textContent = 'まだパルが入っていません';
+    note.hidden = g.members.length > 0;
+    div.appendChild(note);
+
+    list.appendChild(div);
+    combobox(memIn, memSugg, id=>addMember(gi, id));
+    paintGroupChips(gi);   /* the chips box above starts empty — fill it now */
+  });
+  document.getElementById('addGroup').disabled = groups.length >= MAX_GROUPS;
+}
+document.getElementById('addGroup').onclick = addGroup;
+renderGroups();
 
 /* ---- reverse index: child -> parent pairs ---- */
 const PAR = new Array(N);
@@ -759,7 +862,11 @@ const SPPAR = new Map();
 
 /* ---- solver ----
    Works backwards from the target. A subtree is described by which source
-   pals it consumes (bit mask) and how many extra pals it is allowed to use.
+   GROUPS it consumes (bit mask — one bit per group, not per pal) and how
+   many extra pals it is allowed to use. Each group supplies "any one of
+   its members"; a single leaf can only satisfy one group's bit, so if the
+   same pal sits in two groups, using it once never counts for both.
+   srcList: [{members:[{id,g}]}, ...]
    leaf node   : {pal, leaf:true, src, g}
    inner node  : {pal, L, R}                                              */
 function buildSolver(srcList, requireBase){
@@ -791,8 +898,10 @@ function buildSolver(srcList, requireBase){
     const bits = POP[mask], only = mask ? LOW[mask] : -1;
 
     if(bits === 1 && extra === 0){
-      const s = srcList[only];
-      if(s.id === target) out.push({pal:target, leaf:true, src:true, g:s.g});
+      const members = srcList[only].members;
+      for(const m of members){
+        if(m.id === target) out.push({pal:target, leaf:true, src:true, g:m.g});
+      }
       return out;
     }
     if(bits === 0 && extra === 1){
@@ -1298,7 +1407,7 @@ function render(routes, target){
   out.innerHTML = '';
   if(!routes.length){
     out.innerHTML = '<div class="empty"><p class="big">条件に合うルートは見つかりませんでした</p>'
-      + '<p>「継承元以外のパル」の上限を増やす、性別の指定を外す、「同じ継承元を2体使う」を有効にする、のいずれかで見つかることがあります。</p></div>';
+      + '<p>「継承元以外のパル」の上限を増やす、性別の指定を外す、グループにパルを追加する、のいずれかで見つかることがあります。</p></div>';
     return;
   }
   routes.forEach((rt, ri)=>{
@@ -1418,8 +1527,9 @@ sortMenu.querySelectorAll('button').forEach(b=>{
 let lastRoutes = [], lastTarget = null;
 
 document.getElementById('run').addEventListener('click', ()=>{
-  if(sources.length < 1 || goal === null){ setStatus('継承元を1体以上、目標を1体選んでください', true); return; }
-  if(sources.length > 7){ setStatus('継承元は7体までにしてください', true); return; }
+  if(groups.length < 1 || goal === null){ setStatus('グループを1つ以上作り、目標を1体選んでください', true); return; }
+  if(groups.some(g=>g.members.length === 0)){ setStatus('パルが入っていないグループがあります', true); return; }
+  if(groups.length > MAX_GROUPS){ setStatus('グループは'+MAX_GROUPS+'個までにしてください', true); return; }
   const requireBase = document.getElementById('optBase').checked;
   const maxExtra = parseInt(document.getElementById('optExtra').value, 10);
 
@@ -1430,10 +1540,12 @@ document.getElementById('run').addEventListener('click', ()=>{
 
   setTimeout(()=>{
     const t0 = performance.now();
-    const base = sources.map(s=>({id:s.id, g:s.g}));
+    const cloneGroup = g => ({members: g.members.map(m=>({id:m.id, g:m.g}))});
+    const base = groups.map(cloneGroup);
     const srcVariants = [base];
-    /* a second copy of the same pal is a different individual, so its gender is free */
-    sources.forEach(s=>srcVariants.push(base.concat([{id:s.id, g:null}])));
+    /* a group can supply more than one leaf in the tree — breeding doesn't
+       consume the parents, so the same candidates may appear twice */
+    groups.forEach(g => srcVariants.push(base.concat([cloneGroup(g)])));
 
     const cap = 400;
     const seen = new Set();
@@ -1471,10 +1583,11 @@ document.getElementById('run').addEventListener('click', ()=>{
 });
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  sources = []; goal = null; lastRoutes = []; drawChips();
+  groups = []; goal = null; lastRoutes = [];
+  renderGroups(); drawChips();
   document.getElementById('out').innerHTML =
-    '<div class="empty"><p class="big">まだルートはありません</p><p>左の欄に継承元と目標を入れて「ルートを探す」を押してください。</p></div>';
-  setStatus('継承元と目標を選んでください');
+    '<div class="empty"><p class="big">まだルートはありません</p><p>左の欄にグループと目標を入れて「ルートを探す」を押してください。</p></div>';
+  setStatus('グループと目標を選んでください');
 });
 
 paintAccount();
