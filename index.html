@@ -410,16 +410,7 @@ footer code{font-family:"JetBrains Mono",monospace;font-size:.9em;color:#9DB3AB}
     <div class="field">
       <span class="label">探索条件</span>
       <label class="opt"><input type="checkbox" id="optBase" checked><span>継承元どうしの配合から始める<small>ルート1手目に継承元が入るルートだけを出す</small></span></label>
-    </div>
-
-    <div class="field">
-      <label class="label" for="optExtra">継承元以外のパル</label>
-      <select class="sel" id="optExtra">
-        <option value="0">使わない</option>
-        <option value="1" selected>1体まで</option>
-        <option value="2">2体まで</option>
-      </select>
-      <p class="hint">捕まえてきたパルをルートに挟みます。増やすほど候補は広がりますが、無関係なパッシブが混ざる余地も増えます。</p>
+      <p class="hint">継承元・グループ以外のパル（捕獲したパル）を挟むルートも探します。まず上限2体で探し、見つからなければ1体ずつ上限を広げて再探索します。</p>
     </div>
 
     <button class="go" id="run">ルートを探す</button>
@@ -870,8 +861,13 @@ const SPPAR = new Map();
    leaf node   : {pal, leaf:true, src, g}
    inner node  : {pal, L, R}                                              */
 function buildSolver(srcList, requireBase){
-  /* flat numeric-keyed memo: string keys dominated the runtime */
-  const memo = new Array(N * 1024);
+  /* flat numeric-keyed memo: string keys dominated the runtime.
+     key = target*STRIDE_T + mask*STRIDE_M + extra
+     mask needs up to 8 bits (7 groups + 1 duplicate slot) -> 256 values
+     extra has no fixed ceiling now, so it gets a wide band of its own   */
+  const STRIDE_M = 16;                 // room for extra: 0..15 (safety ceiling is far below this)
+  const STRIDE_T = 256 * STRIDE_M;
+  const memo = new Array(N * STRIDE_T);
   const PERSTATE = 120;
 
   function leafOK(node, g){          /* does this node satisfy a fixed gender? */
@@ -889,7 +885,7 @@ function buildSolver(srcList, requireBase){
   for(let m=1;m<256;m++){ let i=0; while(!((m>>i)&1)) i++; LOW[m]=i; }
 
   function solve(target, mask, extra){
-    const key = target * 1024 + mask * 4 + extra;
+    const key = target * STRIDE_T + mask * STRIDE_M + extra;
     const hit = memo[key];
     if(hit) return hit;
     const out = [];
@@ -1407,7 +1403,7 @@ function render(routes, target){
   out.innerHTML = '';
   if(!routes.length){
     out.innerHTML = '<div class="empty"><p class="big">条件に合うルートは見つかりませんでした</p>'
-      + '<p>「継承元以外のパル」の上限を増やす、性別の指定を外す、グループにパルを追加する、のいずれかで見つかることがあります。</p></div>';
+      + '<p>継承元以外のパルを挟むルートも含めて自動的に探しましたが、見つかりませんでした。性別の指定を外すか、グループにパルを追加すると見つかることがあります。</p></div>';
     return;
   }
   routes.forEach((rt, ri)=>{
@@ -1531,7 +1527,6 @@ document.getElementById('run').addEventListener('click', ()=>{
   if(groups.some(g=>g.members.length === 0)){ setStatus('パルが入っていないグループがあります', true); return; }
   if(groups.length > MAX_GROUPS){ setStatus('グループは'+MAX_GROUPS+'個までにしてください', true); return; }
   const requireBase = document.getElementById('optBase').checked;
-  const maxExtra = parseInt(document.getElementById('optExtra').value, 10);
 
   const btn = document.getElementById('run');
   btn.disabled = true; btn.textContent = '探索中…';
@@ -1548,22 +1543,35 @@ document.getElementById('run').addEventListener('click', ()=>{
     groups.forEach(g => srcVariants.push(base.concat([cloneGroup(g)])));
 
     const cap = 400;
+    const BASE_CEILING = 2;             /* always tried first */
+    const SAFETY_MAX_EXTRA = 15;        /* matches the solver's memo width — never raise without widening it too */
+    const TIME_BUDGET_MS = 4000;        /* backstop for pathological inputs (many groups × many members) */
     const seen = new Set();
     const routes = [];
     const solvers = srcVariants.map(sl=>buildSolver(sl, requireBase));
-    /* extra-pal count is the outer loop so the result cap never
-       discards a route that uses fewer outside pals */
-    outer:
-    for(let k = 0; k <= maxExtra; k++){
-      for(const run of solvers){
-        for(const tree of run(goal, k)){
-          const key = treeKey(tree);
-          if(seen.has(key)) continue;
-          seen.add(key);
-          routes.push({steps: flatten(tree), extra: countExtra(tree), goal: goal});
-          if(routes.length >= cap) break outer;
+    /* Search extra<=2 first. If that finds nothing, widen the ceiling by 1 and
+       search only the new level; repeat until something turns up, then stop —
+       we don't keep pushing past the first ceiling that finds anything. */
+    let ceiling = BASE_CEILING, lastK = -1, timedOut = false, usedCeiling = ceiling;
+    widen:
+    while(true){
+      for(let k = lastK + 1; k <= ceiling; k++){
+        for(const run of solvers){
+          for(const tree of run(goal, k)){
+            const key = treeKey(tree);
+            if(seen.has(key)) continue;
+            seen.add(key);
+            routes.push({steps: flatten(tree), extra: countExtra(tree), goal: goal});
+            if(routes.length >= cap) break widen;
+          }
+          if(performance.now() - t0 > TIME_BUDGET_MS){ timedOut = true; break widen; }
         }
       }
+      lastK = ceiling;
+      usedCeiling = ceiling;
+      if(routes.length > 0) break;      /* this ceiling found something — stop here */
+      if(ceiling >= SAFETY_MAX_EXTRA) break;
+      ceiling++;
     }
     routes.sort(currentSort());
     lastRoutes = routes; lastTarget = goal;
@@ -1572,10 +1580,13 @@ document.getElementById('run').addEventListener('click', ()=>{
     render(routes, goal);
     const minStep = routes.length ? Math.min.apply(null, routes.map(r=>r.steps.length)) : 0;
     const minExtra = routes.length ? Math.min.apply(null, routes.map(r=>r.extra)) : 0;
-    const capped = routes.length >= cap ? ' · 上限'+cap+'件で打ち切り' : '';
+    const widened = usedCeiling > BASE_CEILING
+      ? ' · 継承元以外の上限を'+usedCeiling+'体まで広げて発見' : '';
+    const capped = routes.length >= cap ? ' · 上限'+cap+'件で打ち切り'
+                 : timedOut ? ' · 探索時間の上限に達したため打ち切り（グループの候補数を減らすと網羅的になります）' : '';
     const statusHTML = routes.length
-      ? '<b>'+routes.length+'</b> 件 · 最短 <b>'+minStep+'</b> ステップ · 継承元以外 最少 <b>'+minExtra+'</b> 体 · '+ms+' ms'+capped
-      : '<b>0</b> 件 · '+ms+' ms';
+      ? '<b>'+routes.length+'</b> 件 · 最短 <b>'+minStep+'</b> ステップ · 継承元以外 最少 <b>'+minExtra+'</b> 体 · '+ms+' ms'+widened+capped
+      : '<b>0</b> 件 · 継承元以外の上限を'+usedCeiling+'体まで広げても見つかりませんでした · '+ms+' ms';
     setStatus(statusHTML, !routes.length);
     pushView({kind:'route', routes:routes, target:goal, status:statusHTML, warn:!routes.length});
     btn.disabled = false; btn.textContent = 'ルートを探す';
